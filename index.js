@@ -28,6 +28,7 @@ const client = new MongoClient(uri, {
 
 const db = client.db("dormi-dine");
 const mealsCollection = db.collection("meals");
+const upcomingMealsCollection = db.collection("upcoming-meals");
 
 
 app.get("/",(req,res)=>{
@@ -39,6 +40,11 @@ app.get("/",(req,res)=>{
 // Meals Route
 app.get("/meals",async(req,res)=>{
     const result = await mealsCollection.find({}).toArray();
+    res.send(result);
+})
+
+app.get("/upcoming-meals",async(req,res)=>{
+    const result = await upcomingMealsCollection.find({}).toArray();
     res.send(result);
 })
 
