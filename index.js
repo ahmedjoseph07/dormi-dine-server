@@ -4,14 +4,16 @@ import express from "express";
 import cors from "cors";
 import {MongoClient,ServerApiVersion} from "mongodb";
 
-
 const app = express();
 const port = 3000;
 const uri = process.env.MONGO_URI;
-const router = express.Router();
+
 
 // Built-in middlewares
-app.use(cors());
+app.use(cors({
+    origin:"http://localhost:5173",
+    credentials:true
+}));
 app.use(express.json());
 
 
@@ -24,23 +26,21 @@ const client = new MongoClient(uri, {
     },
 });
 
+const db = client.db("dormi-dine");
+const mealsCollection = db.collection("meals");
 
-async function run() {
-    try {
-        // Connect the client to the server	(optional starting in v4.7)
-        // await client.connect();
-        // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
 
-        console.log(
-            "Pinged your deployment. You successfully connected to MongoDB!"
-        );
-    } finally {
-        // Ensures that the client will close when you finish/error
-        // await client.close();
-    }
-}
-run().catch(console.dir);
+app.get("/",(req,res)=>{
+    res.send("Welcome to DormiDome Server");
+})
+
+
+
+// Meals Route
+app.get("/meals",async(req,res)=>{
+    const result = await mealsCollection.find({}).toArray();
+    res.send(result);
+})
 
 
 
