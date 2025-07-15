@@ -31,12 +31,12 @@ const client = new MongoClient(uri, {
 const db = client.db("dormi-dine");
 const mealsCollection = db.collection("meals");
 const upcomingMealsCollection = db.collection("upcoming-meals");
+const usersCollection = db.collection("users");
 
 
 app.get("/",(req,res)=>{
     res.send("Welcome to DormiDome Server");
 })
-
 
 
 // Meals Route
@@ -50,7 +50,37 @@ app.get("/upcoming-meals",async(req,res)=>{
     res.send(result);
 })
 
-// Payment Routes
+// Users Routes
+app.post("/api/save-user",async(req,res)=>{
+    const {email,name} = req.body;
+    if(!email || !name){
+        return res.status(400).json({message:"Email and name are required"})
+    }
+
+    try {
+        const existingUser = await usersCollection.findOne({email});
+        if(existingUser){
+            return res.status(200).json({message:"User already exists",user:existingUser})
+        }
+
+        const newUser = {
+            email,
+            name,
+            role:"user",
+            joined: new Date(),
+            package:"free",
+        }
+
+        const result = await usersCollection.insertOne(newUser);
+        res.status(201).json({message:"User created",user:newUser})
+
+    } catch (err) {
+        console.error("Error saving user",err.message);
+        res.status(500).json({message:"Internal server error"});
+    }
+})
+
+// Payments Routes
 app.post("/api/create-payment-intent",async(req,res)=>{
     const {packageName} = req.body;
 
