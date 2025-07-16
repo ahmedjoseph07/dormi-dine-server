@@ -33,6 +33,7 @@ const mealsCollection = db.collection("meals");
 const upcomingMealsCollection = db.collection("upcoming-meals");
 const usersCollection = db.collection("users");
 const reviewsCollection = db.collection("reviews");
+const paymentsCollection = db.collection("payments");
 
 app.get("/", (req, res) => {
     res.send("Welcome to DormiDome Server");
@@ -202,6 +203,112 @@ app.post("/api/create-payment-intent", async (req, res) => {
         res.status(500).json({ message: "Payment intent failed" });
     }
 });
+
+app.post("/api/save-payment", async (req, res) => {
+    const {
+        email,
+        amount,
+        method,
+        status,
+        transactionId,
+        packageName,
+    } = req.body;
+
+    if (!email || !amount || !method || !status) {
+        return res.status(400).json({ message: "Missing payment data" });
+    }
+
+    try {
+        const payment = {
+            email,
+            date: new Date().toISOString().split("T")[0], // Store YYYY-MM-DD
+            amount,
+            method,
+            status,
+            transactionId,
+            package: packageName || "free",
+        };
+
+        const result = await paymentsCollection.insertOne(payment);
+        res.status(201).json({
+            message: "Payment saved",
+            insertedId: result.insertedId,
+        });
+    } catch (err) {
+        console.error("Payment save error:", err.message);
+        res.status(500).json({ message: "Failed to save payment" });
+    }
+});
+
+app.get("/api/payment-history", async (req, res) => {
+    const { email } = req.query;
+    if (!email) {
+        return res.status(400).json({ message: "Email required" });
+    }
+
+    try {
+        const history = await paymentsCollection
+            .find({ email })
+            .sort({ date: -1 })
+            .toArray();
+        res.send(history);
+    } catch (err) {
+        console.error("Error fetching payments:", err.message);
+        res.status(500).json({ message: "Failed to fetch payment history" });
+    }
+});
+
+app.get("/api/already-paid", async (req, res) => {
+    const { email, packageName } = req.query;
+    if (!email || !packageName) {
+        return res.status(400).json({ message: "Missing query params" });
+    }
+
+    try {
+        const exists = await paymentsCollection.findOne({
+            email,
+            package: packageName.toLowerCase(),
+            status: "Success",
+        });
+
+        if (exists) {
+            return res.status(200).json({ alreadyPaid: true });
+        }
+
+        res.status(200).json({ alreadyPaid: false });
+    } catch (err) {
+        console.error("Error checking payment:", err.message);
+        res.status(500).json({ message: "Failed to check payment status" });
+    }
+});
+
+app.patch("/api/update-user-package", async (req, res) => {
+    const { email, packageName } = req.body;
+
+    if (!email || !packageName) {
+        return res.status(400).json({ message: "Email and package name required" });
+    }
+
+    try {
+        const result = await usersCollection.updateOne(
+            { email },
+            { $set: { package: packageName.toLowerCase() } }
+        );
+
+        if (result.modifiedCount > 0) {
+            res.status(200).json({ message: "User package updated" });
+        } else {
+            res.status(200).json({ message: "No changes made" });
+        }
+    } catch (err) {
+        console.error("Error updating user package:", err.message);
+        res.status(500).json({ message: "Failed to update package" });
+    }
+});
+
+
+
+
 
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
