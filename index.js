@@ -104,6 +104,80 @@ app.get("/api/reviews/:mealId", async (req, res) => {
     }
 });
 
+app.get("/api/user-reviews", async (req, res) => {
+    const { email } = req.query;
+    if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+    }
+    try {
+        const reviews = await reviewsCollection
+            .find({ email })
+            .sort({ timestamp: -1 })
+            .toArray();
+
+        // Attaching Meal Data (title)
+        const mealIds = reviews.map(r => new ObjectId(r.mealId));
+        const meals = await mealsCollection
+            .find({ _id: { $in: mealIds } })
+            .toArray();
+
+        const mealMap = {};
+        meals.forEach(meal => {
+            mealMap[meal._id.toString()] = meal.title || "N/A";
+        });
+
+        const enriched = reviews.map(r => ({
+            ...r,
+            title: mealMap[r.mealId] || "N/A",
+        }));
+        res.send(enriched);
+
+    } catch (err) {
+        console.error("Error fetching user reviews:", err.message);
+        res.status(500).json({ message: "Failed to fetch reviews" });
+    }
+});
+
+app.patch("/api/reviews/:id", async (req, res) => {
+    const { id } = req.params;
+    const { comment, rating } = req.body;
+
+    try {
+        const result = await reviewsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { comment, rating } }
+        );
+
+        if (result.modifiedCount > 0) {
+            res.status(200).json({ message: "Review updated" });
+        } else {
+            res.status(200).json({ message: "No changes made" });
+        }
+    } catch (err) {
+        res.status(500).json({ message: "Update failed" });
+    }
+});
+
+app.delete("/api/reviews/:id", async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const result = await reviewsCollection.deleteOne({
+            _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount > 0) {
+            res.send({ message: "Review deleted" });
+        } else {
+            res.status(404).json({ message: "Review not found" });
+        }
+    } catch (err) {
+        console.error("Error deleting review:", err.message);
+        res.status(500).json({ message: "Failed to delete review" });
+    }
+});
+
+
 
 // Users Routes
 app.post("/api/save-user", async (req, res) => {
