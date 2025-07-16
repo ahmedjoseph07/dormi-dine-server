@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import express from "express";
 import cors from "cors";
-import { MongoClient, ServerApiVersion } from "mongodb";
+import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
 import Stripe from "stripe";
 
 const app = express();
@@ -32,6 +32,7 @@ const db = client.db("dormi-dine");
 const mealsCollection = db.collection("meals");
 const upcomingMealsCollection = db.collection("upcoming-meals");
 const usersCollection = db.collection("users");
+const reviewsCollection = db.collection("reviews");
 
 app.get("/", (req, res) => {
     res.send("Welcome to DormiDome Server");
@@ -47,6 +48,61 @@ app.get("/upcoming-meals", async (req, res) => {
     const result = await upcomingMealsCollection.find({}).toArray();
     res.send(result);
 });
+
+app.get("/api/meals/:id", async (req, res) => {
+    const { id } = req.params;
+    try {
+        const meal = await mealsCollection.findOne({ _id: new ObjectId(id) });
+        if (!meal) return res.status(404).json({ message: "Meal not found" });
+        res.send(meal);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to fetch meal" });
+    }
+});
+
+// Reviews Route
+
+app.post("/api/add-review", async (req, res) => {
+    const { mealId, name, email, comment, rating } = req.body;
+    if (!mealId || !comment || !name || !email) {
+        return res.status(400).json({ message: "Missing review fields" });
+    }
+
+    try {
+        const review = {
+            mealId,
+            name,
+            email,
+            comment,
+            rating: parseFloat(rating) || 0,
+            timestamp: new Date(),
+        };
+        const result = await reviewsCollection.insertOne(review);
+        res.status(201).json({
+            message: "Review added",
+            insertedId: result.insertedId,
+        });
+    } catch (err) {
+        console.error("Error adding review:", err.message);
+        res.status(500).json({ message: "Failed to post review" });
+    }
+});
+
+app.get("/api/reviews/:mealId", async (req, res) => {
+    try {
+        const mealId = req.params.mealId;
+        const reviews = await reviewsCollection
+            .find({ mealId })
+            .sort({ timestamp: -1 })
+            .toArray();
+        res.send(reviews);
+    } catch (err) {
+        console.error("Error fetching reviews:", err.message);
+        res.status(500).json({ message: "Failed to fetch reviews" });
+    }
+});
+
 
 // Users Routes
 app.post("/api/save-user", async (req, res) => {
