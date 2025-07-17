@@ -62,6 +62,94 @@ app.get("/api/meals/:id", async (req, res) => {
     }
 });
 
+app.post("/api/like/:mealId", async (req, res) => {
+    const { mealId } = req.params;
+    const { email } = req.body;
+
+    if (!email || !mealId) {
+        return res.status(400).json({ message: "Missing email or mealId" });
+    }
+
+    try {
+        const meal = await mealsCollection.findOne({
+            _id: new ObjectId(mealId),
+        });
+        if (!meal) {
+            return res.status(404).json({ message: "Meal not found" });
+        }
+        const isLikedBy = meal.isLikedBy || [];
+        const alreadyLiked = meal.isLikedBy?.includes(email);
+        let updatedDoc;
+
+        if (alreadyLiked) {
+            updatedDoc = {
+                $pull: { isLikedBy: email },
+                $inc: { likes: -1 },
+            };
+        } else {
+            updatedDoc = {
+                $addToSet: { isLikedBy: email },
+                $inc: { likes: 1 },
+            };
+        }
+
+        const result = await mealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            updatedDoc
+        );
+
+        res.json({message: alreadyLiked? "Unliked successfully": "Liked successfully",});
+
+    } catch (err) {
+        console.error("Error in liking API", err.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.post("/api/upcoming-like/:mealId", async (req, res) => {
+    const { mealId } = req.params;
+    const { email } = req.body;
+
+    if (!email || !mealId) {
+        return res.status(400).json({ message: "Missing email or mealId" });
+    }
+
+    try {
+        const meal = await upcomingMealsCollection.findOne({
+            _id: new ObjectId(mealId),
+        });
+        if (!meal) {
+            return res.status(404).json({ message: "Meal not found" });
+        }
+        const isLikedBy = meal.isLikedBy || [];
+        const alreadyLiked = meal.isLikedBy?.includes(email);
+        let updatedDoc;
+
+        if (alreadyLiked) {
+            updatedDoc = {
+                $pull: { isLikedBy: email },
+                $inc: { likes: -1 },
+            };
+        } else {
+            updatedDoc = {
+                $addToSet: { isLikedBy: email },
+                $inc: { likes: 1 },
+            };
+        }
+
+        const result = await upcomingMealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            updatedDoc
+        );
+
+        res.json({message: alreadyLiked? "Unliked successfully": "Liked successfully",});
+
+    } catch (err) {
+        console.error("Error in liking API", err.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
 // Reviews Route
 
 app.post("/api/add-review", async (req, res) => {
@@ -116,22 +204,21 @@ app.get("/api/user-reviews", async (req, res) => {
             .toArray();
 
         // Attaching Meal Data (title)
-        const mealIds = reviews.map(r => new ObjectId(r.mealId));
+        const mealIds = reviews.map((r) => new ObjectId(r.mealId));
         const meals = await mealsCollection
             .find({ _id: { $in: mealIds } })
             .toArray();
 
         const mealMap = {};
-        meals.forEach(meal => {
+        meals.forEach((meal) => {
             mealMap[meal._id.toString()] = meal.title || "N/A";
         });
 
-        const enriched = reviews.map(r => ({
+        const enriched = reviews.map((r) => ({
             ...r,
             title: mealMap[r.mealId] || "N/A",
         }));
         res.send(enriched);
-
     } catch (err) {
         console.error("Error fetching user reviews:", err.message);
         res.status(500).json({ message: "Failed to fetch reviews" });
@@ -176,8 +263,6 @@ app.delete("/api/reviews/:id", async (req, res) => {
         res.status(500).json({ message: "Failed to delete review" });
     }
 });
-
-
 
 // Users Routes
 app.post("/api/save-user", async (req, res) => {
@@ -279,14 +364,8 @@ app.post("/api/create-payment-intent", async (req, res) => {
 });
 
 app.post("/api/save-payment", async (req, res) => {
-    const {
-        email,
-        amount,
-        method,
-        status,
-        transactionId,
-        packageName,
-    } = req.body;
+    const { email, amount, method, status, transactionId, packageName } =
+        req.body;
 
     if (!email || !amount || !method || !status) {
         return res.status(400).json({ message: "Missing payment data" });
@@ -360,7 +439,9 @@ app.patch("/api/update-user-package", async (req, res) => {
     const { email, packageName } = req.body;
 
     if (!email || !packageName) {
-        return res.status(400).json({ message: "Email and package name required" });
+        return res
+            .status(400)
+            .json({ message: "Email and package name required" });
     }
 
     try {
@@ -380,10 +461,7 @@ app.patch("/api/update-user-package", async (req, res) => {
     }
 });
 
-
-
-
-
+// Server Listen
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
