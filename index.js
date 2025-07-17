@@ -34,6 +34,7 @@ const upcomingMealsCollection = db.collection("upcoming-meals");
 const usersCollection = db.collection("users");
 const reviewsCollection = db.collection("reviews");
 const paymentsCollection = db.collection("payments");
+const requestedMealsCollection = db.collection("requested-meals")
 
 app.get("/", (req, res) => {
     res.send("Welcome to DormiDome Server");
@@ -98,8 +99,11 @@ app.post("/api/like/:mealId", async (req, res) => {
             updatedDoc
         );
 
-        res.json({message: alreadyLiked? "Unliked successfully": "Liked successfully",});
-
+        res.json({
+            message: alreadyLiked
+                ? "Unliked successfully"
+                : "Liked successfully",
+        });
     } catch (err) {
         console.error("Error in liking API", err.message);
         res.status(500).json({ message: "Internal server error" });
@@ -142,13 +146,71 @@ app.post("/api/upcoming-like/:mealId", async (req, res) => {
             updatedDoc
         );
 
-        res.json({message: alreadyLiked? "Unliked successfully": "Liked successfully",});
-
+        res.json({
+            message: alreadyLiked
+                ? "Unliked successfully"
+                : "Liked successfully",
+        });
     } catch (err) {
         console.error("Error in liking API", err.message);
         res.status(500).json({ message: "Internal server error" });
     }
 });
+
+app.post("/api/request-meal", async (req, res) => {
+    const { title, email, name } = req.body;
+
+    if (!title || !email || !name) {
+        return res
+            .status(400)
+            .json({ message: "Missing title, email, or name" });
+    }
+
+    const newRequest = {
+        title,
+        email,
+        name,
+        isRequestedBy : [],
+        status: "pending",
+    };
+
+    try {
+        const result = await requestedMealsCollection.insertOne(newRequest);
+
+        await mealsCollection.updateOne(
+            { title },
+            {
+                $addToSet: { isRequestedBy: email },
+            }
+        );
+        
+        res.status(201).json({
+            message: "Meal request submitted",
+            insertedId: result.insertedId,
+        });
+    } catch (err) {
+        console.error("Error requesting meal:", err.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.get("/api/requested-meals", async (req, res) => {
+    const { email } = req.query;
+
+    if (!email) {
+        return res.status(400).json({ message: "User email is required" });
+    }
+
+    try {
+        const meals = await requestedMealsCollection.find({ email }).toArray();
+        res.send(meals);
+    } catch (err) {
+        console.error("Error fetching requested meals:", err.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+
 
 // Reviews Route
 
