@@ -34,7 +34,7 @@ const upcomingMealsCollection = db.collection("upcoming-meals");
 const usersCollection = db.collection("users");
 const reviewsCollection = db.collection("reviews");
 const paymentsCollection = db.collection("payments");
-const requestedMealsCollection = db.collection("requested-meals")
+const requestedMealsCollection = db.collection("requested-meals");
 
 app.get("/", (req, res) => {
     res.send("Welcome to DormiDome Server");
@@ -158,7 +158,7 @@ app.post("/api/upcoming-like/:mealId", async (req, res) => {
 });
 
 app.post("/api/request-meal", async (req, res) => {
-    const { title, email, name } = req.body;
+    const { title, mealId, email, name, likes, reviews } = req.body;
 
     if (!title || !email || !name) {
         return res
@@ -168,9 +168,11 @@ app.post("/api/request-meal", async (req, res) => {
 
     const newRequest = {
         title,
+        mealId,
         email,
         name,
-        isRequestedBy : [],
+        likes,
+        reviews,
         status: "pending",
     };
 
@@ -183,7 +185,7 @@ app.post("/api/request-meal", async (req, res) => {
                 $addToSet: { isRequestedBy: email },
             }
         );
-        
+
         res.status(201).json({
             message: "Meal request submitted",
             insertedId: result.insertedId,
@@ -210,7 +212,40 @@ app.get("/api/requested-meals", async (req, res) => {
     }
 });
 
+app.patch("/api/requested-meals/:id/cancel", async (req, res) => {
+    try {
+        const requestedMealId = req.params.id;
+        const requestedMeal = await requestedMealsCollection.findOne({
+            _id: new ObjectId(requestedMealId),
+        });
 
+        if (!requestedMeal) {
+            return res.status(404).json({ message: "Requested meal not found" });
+        }
+
+        const { mealId, email } = requestedMeal;
+        
+        const result = await requestedMealsCollection.updateOne(
+            { _id: new ObjectId(requestedMealId) },
+            { $set: { status: "cancelled" } }
+        );
+
+        if (result.modifiedCount === 0) {
+            return res
+                .status(404)
+                .json({ message: "Meal not found or already cancelled" });
+        }
+        await mealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            { $pull: { isRequestedBy: email } }
+        );
+
+        res.json({ message: "Meal cancelled successfully" });
+    } catch (err) {
+        console.error("Cancel meal error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
 
 // Reviews Route
 
