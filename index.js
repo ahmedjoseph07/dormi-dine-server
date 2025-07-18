@@ -40,9 +40,9 @@ app.get("/", (req, res) => {
     res.send("Welcome to DormiDome Server");
 });
 
-// Meals Route
+// Meals Routes
 app.get("/api/meals", async (req, res) => {
-    const { search, category, priceRange } = req.query;
+    const { search, category, priceRange, sortBy } = req.query;
     const query = {};
 
     if (search) {
@@ -55,7 +55,7 @@ app.get("/api/meals", async (req, res) => {
     if (category && category !== "All") {
         query.category = category.toLowerCase();
     }
-
+    
     if (priceRange && priceRange !== "All") {
         if (priceRange === "Below 80") {
             query.price = { $lt: 80 };
@@ -67,8 +67,15 @@ app.get("/api/meals", async (req, res) => {
         }
     }
 
+    let sortOption = {};
+    if (sortBy === "likes") {
+        sortOption.likes = -1; // descending
+    } else if (sortBy === "reviews") {
+        sortOption.reviewsCount = -1; // descending
+    }
+
     try {
-        const meals = await mealsCollection.find(query).toArray();
+        const meals = await mealsCollection.find(query).sort(sortOption).toArray();
         res.json(meals);
     } catch (error) {
         console.error("Meal fetch error:", error);
@@ -354,7 +361,72 @@ app.post("/api/meals", async (req, res) => {
     }
 });
 
-// Reviews Route
+app.delete("/api/meals/:id", async (req, res) => {
+    try {
+        const id = req.params.id;
+        const result = await mealsCollection.deleteOne({
+            _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).send({ error: "Meal not found" });
+        }
+
+        res.send({ message: "Meal deleted successfully" });
+    } catch (err) {
+        res.status(500).send({ error: "Failed to delete meal" });
+    }
+});
+
+app.patch("/api/meals/:id", async (req, res) => {
+    try {
+        const id = req.params.id;
+        const {
+            title,
+            category,
+            ingredients,
+            price,
+            postTime,
+            description,
+            distributor,
+            email,
+            image,
+        } = req.body;
+
+        const updateFields = {
+            title,
+            category: category.toLowerCase(),
+            ingredients: ingredients.map(
+                (ing) =>
+                    ing.charAt(0).toUpperCase() + ing.slice(1).toLowerCase()
+            ),
+            price: parseFloat(price),
+            postTime,
+            description,
+            distributor,
+            email,
+        };
+
+        if (image) {
+            updateFields.image = image;
+        }
+
+        const result = await mealsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updateFields }
+        );
+
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ error: "Meal not found" });
+        }
+
+        res.json({ message: "Meal updated successfully" });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to update meal" });
+    }
+});
+
+// Reviews Routes
 app.post("/api/add-review", async (req, res) => {
     const { mealId, name, email, comment, rating } = req.body;
     if (!mealId || !comment || !name || !email) {
@@ -473,7 +545,8 @@ app.patch("/api/reviews/:id", async (req, res) => {
         const avgRating =
             totalReviews === 0
                 ? 0
-                : allReviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews;
+                : allReviews.reduce((sum, r) => sum + r.rating, 0) /
+                  totalReviews;
 
         // 4. Update meal document
         await mealsCollection.updateOne(
