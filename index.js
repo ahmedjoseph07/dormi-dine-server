@@ -53,7 +53,7 @@ app.get("/api/meals", async (req, res) => {
     }
 
     if (category && category !== "All") {
-        query.category = category;
+        query.category = category.toLowerCase();
     }
 
     if (priceRange && priceRange !== "All") {
@@ -279,8 +279,72 @@ app.patch("/api/requested-meals/:id/cancel", async (req, res) => {
     }
 });
 
-// Reviews Route
+app.post("/api/meals", async (req, res) => {
+    const {
+        title,
+        category,
+        ingredients,
+        description,
+        price,
+        postTime,
+        image,
+        distributorName,
+        distributorEmail,
+        rating,
+        likes,
+        reviewsCount,
+        addedBy
+    } = req.body;
 
+    if (
+        !title || !category || !ingredients || !description || !price ||
+        !postTime || !image || !distributorName || !distributorEmail ||
+        rating === undefined || likes === undefined || reviewsCount === undefined || !addedBy
+    ) {
+        return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    try {
+
+        const meal = {
+            title,
+            category:category.toLowerCase(),
+            ingredients:ingredients.map((ing) => ing.charAt(0).toUpperCase() + ing.slice(1).toLowerCase()),
+            description,
+            price,
+            postTime,
+            image,
+            distributorName,
+            distributorEmail,
+            rating,
+            likes,
+            reviewsCount,
+            addedBy,
+        };
+
+
+        const mealResult = await mealsCollection.insertOne(meal);
+        const userResult = await usersCollection.updateOne(
+            { email: addedBy, role: "admin" },
+            { $inc: { mealsAdded: 1 } }
+        );
+
+        if (mealResult.insertedId) {
+            res.status(201).json({
+                message: "Meal added successfully",
+                id: mealResult.insertedId,
+            });
+        } else {
+            res.status(500).json({ message: "Failed to add meal" });
+        }
+    } catch (err) {
+        console.error("Error adding meal:", err);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+
+// Reviews Route
 app.post("/api/add-review", async (req, res) => {
     const { mealId, name, email, comment, rating } = req.body;
     if (!mealId || !comment || !name || !email) {
