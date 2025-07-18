@@ -55,7 +55,7 @@ app.get("/api/meals", async (req, res) => {
     if (category && category !== "All") {
         query.category = category.toLowerCase();
     }
-    
+
     if (priceRange && priceRange !== "All") {
         if (priceRange === "Below 80") {
             query.price = { $lt: 80 };
@@ -75,7 +75,10 @@ app.get("/api/meals", async (req, res) => {
     }
 
     try {
-        const meals = await mealsCollection.find(query).sort(sortOption).toArray();
+        const meals = await mealsCollection
+            .find(query)
+            .sort(sortOption)
+            .toArray();
         res.json(meals);
     } catch (error) {
         console.error("Meal fetch error:", error);
@@ -388,8 +391,6 @@ app.patch("/api/meals/:id", async (req, res) => {
             price,
             postTime,
             description,
-            distributor,
-            email,
             image,
         } = req.body;
 
@@ -403,8 +404,6 @@ app.patch("/api/meals/:id", async (req, res) => {
             price: parseFloat(price),
             postTime,
             description,
-            distributor,
-            email,
         };
 
         if (image) {
@@ -618,6 +617,52 @@ app.delete("/api/reviews/:id", async (req, res) => {
     } catch (err) {
         console.error("Error deleting review:", err.message);
         res.status(500).json({ message: "Failed to delete review" });
+    }
+});
+
+// Working todo
+app.get("/api/all-reviews", async (req, res) => {
+    try {
+        const reviews = await reviewsCollection
+            .aggregate([
+                {
+                    $addFields: {
+                        mealObjectId: {
+                            $convert: {
+                                input: "$mealId",
+                                to: "objectId",
+                                onError: null,
+                                onNull: null,
+                            },
+                        },
+                    },
+                },
+                {
+                    $lookup: {
+                        from: "meals",
+                        localField: "mealObjectId",
+                        foreignField: "_id",
+                        as: "meal",
+                    },
+                },
+                { $unwind: "$meal" },
+                {
+                    $project: {
+                        _id: 1,
+                        comment: 1,
+                        rating: 1,
+                        mealTitle: "$meal.title",
+                        mealId: "$meal._id",
+                        likes: "$meal.likes",
+                        reviewsCount: "$meal.reviewsCount",
+                    },
+                },
+            ])
+            .toArray();
+        res.json(reviews);
+    } catch (error) {
+        console.error("Get reviews error:", error);
+        res.status(500).json({ message: "Server error" });
     }
 });
 
