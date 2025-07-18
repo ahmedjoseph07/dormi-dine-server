@@ -293,23 +293,35 @@ app.post("/api/meals", async (req, res) => {
         rating,
         likes,
         reviewsCount,
-        addedBy
+        addedBy,
     } = req.body;
 
     if (
-        !title || !category || !ingredients || !description || !price ||
-        !postTime || !image || !distributorName || !distributorEmail ||
-        rating === undefined || likes === undefined || reviewsCount === undefined || !addedBy
+        !title ||
+        !category ||
+        !ingredients ||
+        !description ||
+        !price ||
+        !postTime ||
+        !image ||
+        !distributorName ||
+        !distributorEmail ||
+        rating === undefined ||
+        likes === undefined ||
+        reviewsCount === undefined ||
+        !addedBy
     ) {
         return res.status(400).json({ message: "Missing required fields" });
     }
 
     try {
-
         const meal = {
             title,
-            category:category.toLowerCase(),
-            ingredients:ingredients.map((ing) => ing.charAt(0).toUpperCase() + ing.slice(1).toLowerCase()),
+            category: category.toLowerCase(),
+            ingredients: ingredients.map(
+                (ing) =>
+                    ing.charAt(0).toUpperCase() + ing.slice(1).toLowerCase()
+            ),
             description,
             price,
             postTime,
@@ -321,7 +333,6 @@ app.post("/api/meals", async (req, res) => {
             reviewsCount,
             addedBy,
         };
-
 
         const mealResult = await mealsCollection.insertOne(meal);
         const userResult = await usersCollection.updateOne(
@@ -343,7 +354,6 @@ app.post("/api/meals", async (req, res) => {
     }
 });
 
-
 // Reviews Route
 app.post("/api/add-review", async (req, res) => {
     const { mealId, name, email, comment, rating } = req.body;
@@ -358,11 +368,33 @@ app.post("/api/add-review", async (req, res) => {
             email,
             comment,
             rating: parseFloat(rating) || 0,
-            timestamp: new Date(),
+            postTime: new Date(),
         };
         const result = await reviewsCollection.insertOne(review);
+
+        const allReviews = await reviewsCollection
+            .find({ mealId: mealId })
+            .toArray();
+
+        const totalReviews = allReviews.length;
+        const avgRating =
+            totalReviews === 0
+                ? 0
+                : allReviews.reduce((sum, r) => sum + r.rating, 0) /
+                  totalReviews;
+
+        await mealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            {
+                $set: {
+                    rating: parseFloat(avgRating.toFixed(1)),
+                    reviewsCount: totalReviews,
+                },
+            }
+        );
+
         res.status(201).json({
-            message: "Review added",
+            message: "Review added and updated successfully",
             insertedId: result.insertedId,
         });
     } catch (err) {
@@ -423,15 +455,45 @@ app.patch("/api/reviews/:id", async (req, res) => {
     const { comment, rating } = req.body;
 
     try {
+        const review = await reviewsCollection.findOne({
+            _id: new ObjectId(id),
+        });
+        if (!review) {
+            return res.status(404).json({ message: "Review not found" });
+        }
+        const mealId = review.mealId;
+
         const result = await reviewsCollection.updateOne(
             { _id: new ObjectId(id) },
-            { $set: { comment, rating } }
+            { $set: { comment, rating: parseFloat(rating) } }
+        );
+
+        const allReviews = await reviewsCollection.find({ mealId }).toArray();
+        const totalReviews = allReviews.length;
+        const avgRating =
+            totalReviews === 0
+                ? 0
+                : allReviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews;
+
+        // 4. Update meal document
+        await mealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            {
+                $set: {
+                    rating: parseFloat(avgRating.toFixed(1)),
+                    reviewsCount: totalReviews,
+                },
+            }
         );
 
         if (result.modifiedCount > 0) {
-            res.status(200).json({ message: "Review updated" });
+            return res.status(200).json({
+                message: "Review updated and meal stats refreshed",
+            });
         } else {
-            res.status(200).json({ message: "No changes made" });
+            return res.status(200).json({
+                message: "No changes made but meal stats refreshed",
+            });
         }
     } catch (err) {
         res.status(500).json({ message: "Update failed" });
@@ -442,6 +504,14 @@ app.delete("/api/reviews/:id", async (req, res) => {
     const { id } = req.params;
 
     try {
+        const review = await reviewsCollection.findOne({
+            _id: new ObjectId(id),
+        });
+        if (!review) {
+            return res.status(404).json({ message: "Review not found" });
+        }
+        const mealId = review.mealId;
+
         const result = await reviewsCollection.deleteOne({
             _id: new ObjectId(id),
         });
@@ -451,6 +521,27 @@ app.delete("/api/reviews/:id", async (req, res) => {
         } else {
             res.status(404).json({ message: "Review not found" });
         }
+
+        const allReviews = await reviewsCollection
+            .find({ mealId: mealId })
+            .toArray();
+        const totalReviews = allReviews.length;
+        const avgRating =
+            totalReviews === 0
+                ? 0
+                : allReviews.reduce((sum, r) => sum + r.rating, 0) /
+                  totalReviews;
+
+        // Update the meal document
+        await mealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            {
+                $set: {
+                    rating: parseFloat(avgRating.toFixed(1)),
+                    reviewsCount: totalReviews,
+                },
+            }
+        );
     } catch (err) {
         console.error("Error deleting review:", err.message);
         res.status(500).json({ message: "Failed to delete review" });
