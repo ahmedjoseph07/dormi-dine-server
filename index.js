@@ -441,6 +441,26 @@ app.get("/api/user", async (req, res) => {
     }
 });
 
+app.get("/api/admin/users", async (req, res) => {
+    const { search } = req.query;
+    const baseQuery = { role: "user" };
+
+    if (search) {
+        baseQuery.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { email: { $regex: search, $options: "i" } },
+        ];
+    }
+
+    try {
+        const users = await usersCollection.find(baseQuery).toArray();
+        res.send(users);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
 app.get("/api/users/role", async (req, res) => {
     const { email } = req.query;
 
@@ -458,6 +478,36 @@ app.get("/api/users/role", async (req, res) => {
         res.json({ role: user.role || "user" });
     } catch (err) {
         console.error("Error fetching role:", err);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.put("/api/admin/users/:email/make-admin", async (req, res) => {
+    const { email } = req.params;
+    if (!email) {
+        return res.status(400).json({ message: "User email is required" });
+    }
+
+    try {
+        const updateResult = await usersCollection.updateOne(
+            { email },
+            {
+                $set: {
+                    role: "admin",
+                    mealsAdded: 0,
+                },
+            }
+        );
+
+        if (updateResult.modifiedCount === 0) {
+            return res
+                .status(404)
+                .json({ message: "User not found or already an admin" });
+        }
+
+        res.json({ message: "User promoted to admin successfully" });
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ message: "Internal server error" });
     }
 });
