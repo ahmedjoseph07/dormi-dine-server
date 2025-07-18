@@ -41,9 +41,39 @@ app.get("/", (req, res) => {
 });
 
 // Meals Route
-app.get("/meals", async (req, res) => {
-    const result = await mealsCollection.find({}).toArray();
-    res.send(result);
+app.get("/api/meals", async (req, res) => {
+    const { search, category, priceRange } = req.query;
+    const query = {};
+
+    if (search) {
+        query.$or = [
+            { title: { $regex: search, $options: "i" } },
+            { description: { $regex: search, $options: "i" } },
+        ];
+    }
+
+    if (category && category !== "All") {
+        query.category = category;
+    }
+
+    if (priceRange && priceRange !== "All") {
+        if (priceRange === "Below 80") {
+            query.price = { $lt: 80 };
+        } else if (priceRange === "Above 120") {
+            query.price = { $gt: 120 };
+        } else {
+            const [min, max] = priceRange.split("-").map(Number);
+            query.price = { $gte: min, $lte: max };
+        }
+    }
+
+    try {
+        const meals = await mealsCollection.find(query).toArray();
+        res.json(meals);
+    } catch (error) {
+        console.error("Meal fetch error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
 });
 
 app.get("/upcoming-meals", async (req, res) => {
@@ -220,11 +250,13 @@ app.patch("/api/requested-meals/:id/cancel", async (req, res) => {
         });
 
         if (!requestedMeal) {
-            return res.status(404).json({ message: "Requested meal not found" });
+            return res
+                .status(404)
+                .json({ message: "Requested meal not found" });
         }
 
         const { mealId, email } = requestedMeal;
-        
+
         const result = await requestedMealsCollection.updateOne(
             { _id: new ObjectId(requestedMealId) },
             { $set: { status: "cancelled" } }
