@@ -198,7 +198,7 @@ app.post("/api/upcoming-like/:mealId", async (req, res) => {
 });
 
 app.post("/api/request-meal", async (req, res) => {
-    const { title, mealId, email, name, likes, reviews } = req.body;
+    const { title, mealId, email, name, likes, reviewsCount } = req.body;
 
     if (!title || !email || !name) {
         return res
@@ -212,7 +212,7 @@ app.post("/api/request-meal", async (req, res) => {
         email,
         name,
         likes,
-        reviews,
+        reviewsCount,
         status: "pending",
     };
 
@@ -237,17 +237,52 @@ app.post("/api/request-meal", async (req, res) => {
 });
 
 app.get("/api/requested-meals", async (req, res) => {
-    const { email } = req.query;
-
-    if (!email) {
-        return res.status(400).json({ message: "User email is required" });
-    }
+    const { email, search } = req.query;
 
     try {
-        const meals = await requestedMealsCollection.find({ email }).toArray();
+        let query = {};
+
+        if (email) {
+            query.email = email;
+        }
+
+        if (search) {
+            const regex = new RegExp(search, "i");
+            query = {
+                $or: [{ email: regex }, { name: regex }],
+            };
+        }
+
+        const meals = await requestedMealsCollection.find(query).toArray();
         res.send(meals);
     } catch (err) {
         console.error("Error fetching requested meals:", err.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.patch("/api/requested-meals/:id/serve", async (req, res) => {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ message: "Invalid meal request ID" });
+    }
+
+    try {
+        const result = await requestedMealsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status: "served" } }
+        );
+
+        if (result.modifiedCount === 0) {
+            return res
+                .status(404)
+                .json({ message: "Meal request not found or already served" });
+        }
+
+        res.status(200).json({ message: "Meal marked as served" });
+    } catch (error) {
+        console.error("Error updating meal status:", error);
         res.status(500).json({ message: "Internal server error" });
     }
 });
@@ -620,7 +655,6 @@ app.delete("/api/reviews/:id", async (req, res) => {
     }
 });
 
-// Working todo
 app.get("/api/all-reviews", async (req, res) => {
     try {
         const reviews = await reviewsCollection
