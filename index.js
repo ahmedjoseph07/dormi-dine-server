@@ -309,8 +309,8 @@ app.post("/api/upcoming-meals", async (req, res) => {
     const preparedMeal = {
         ...meal,
         category: meal.category.toLowerCase(),
-        ingredients: meal.ingredients.map((ing) =>
-            ing.charAt(0).toUpperCase() + ing.slice(1).toLowerCase()
+        ingredients: meal.ingredients.map(
+            (ing) => ing.charAt(0).toUpperCase() + ing.slice(1).toLowerCase()
         ),
         likes: 0,
         reviewsCount: 0,
@@ -432,7 +432,6 @@ app.post("/api/upcoming-like/:mealId", async (req, res) => {
     }
 });
 
-
 // Requested Meals Routes
 app.post("/api/request-meal", async (req, res) => {
     const { title, mealId, email, name, likes, reviewsCount } = req.body;
@@ -499,15 +498,24 @@ app.get("/api/requested-meals", async (req, res) => {
 });
 
 app.patch("/api/requested-meals/:id/serve", async (req, res) => {
-    const { id } = req.params;
+    const requestedMealId = req.params.id;
+    const requestedMeal = await requestedMealsCollection.findOne({
+        _id: new ObjectId(requestedMealId),
+    });
 
-    if (!ObjectId.isValid(id)) {
+    if (!requestedMeal) {
+        return res.status(404).json({ message: "Requested meal not found" });
+    }
+
+    const { mealId, email } = requestedMeal;
+
+    if (!ObjectId.isValid(requestedMealId)) {
         return res.status(400).json({ message: "Invalid meal request ID" });
     }
 
     try {
         const result = await requestedMealsCollection.updateOne(
-            { _id: new ObjectId(id) },
+            { _id: new ObjectId(requestedMealId) },
             { $set: { status: "served" } }
         );
 
@@ -516,6 +524,11 @@ app.patch("/api/requested-meals/:id/serve", async (req, res) => {
                 .status(404)
                 .json({ message: "Meal request not found or already served" });
         }
+
+        await mealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            { $pull: { isRequestedBy: email } }
+        );
 
         res.status(200).json({ message: "Meal marked as served" });
     } catch (error) {
@@ -560,8 +573,6 @@ app.patch("/api/requested-meals/:id/cancel", async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 });
-
-
 
 // Reviews Routes
 app.post("/api/add-review", async (req, res) => {
@@ -1073,9 +1084,7 @@ app.get("/api/dashboard-stats", async (req, res) => {
             ]);
 
         const totalRevenue =
-            totalRevenueResult.length > 0
-                ? totalRevenueResult[0].total
-                : 0;
+            totalRevenueResult.length > 0 ? totalRevenueResult[0].total : 0;
 
         res.json({
             users: userCount,
@@ -1088,7 +1097,6 @@ app.get("/api/dashboard-stats", async (req, res) => {
         res.status(500).json({ message: "Failed to fetch dashboard stats" });
     }
 });
-
 
 // Server Listen
 app.listen(port, () => {
