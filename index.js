@@ -86,11 +86,6 @@ app.get("/api/meals", async (req, res) => {
     }
 });
 
-app.get("/upcoming-meals", async (req, res) => {
-    const result = await upcomingMealsCollection.find({}).toArray();
-    res.send(result);
-});
-
 app.get("/api/meals/:id", async (req, res) => {
     const { id } = req.params;
     try {
@@ -147,180 +142,6 @@ app.post("/api/like/:mealId", async (req, res) => {
     } catch (err) {
         console.error("Error in liking API", err.message);
         res.status(500).json({ message: "Internal server error" });
-    }
-});
-
-app.post("/api/upcoming-like/:mealId", async (req, res) => {
-    const { mealId } = req.params;
-    const { email } = req.body;
-
-    if (!email || !mealId) {
-        return res.status(400).json({ message: "Missing email or mealId" });
-    }
-
-    try {
-        const meal = await upcomingMealsCollection.findOne({
-            _id: new ObjectId(mealId),
-        });
-        if (!meal) {
-            return res.status(404).json({ message: "Meal not found" });
-        }
-        const isLikedBy = meal.isLikedBy || [];
-        const alreadyLiked = meal.isLikedBy?.includes(email);
-        let updatedDoc;
-
-        if (alreadyLiked) {
-            updatedDoc = {
-                $pull: { isLikedBy: email },
-                $inc: { likes: -1 },
-            };
-        } else {
-            updatedDoc = {
-                $addToSet: { isLikedBy: email },
-                $inc: { likes: 1 },
-            };
-        }
-
-        const result = await upcomingMealsCollection.updateOne(
-            { _id: new ObjectId(mealId) },
-            updatedDoc
-        );
-
-        res.json({
-            message: alreadyLiked
-                ? "Unliked successfully"
-                : "Liked successfully",
-        });
-    } catch (err) {
-        console.error("Error in liking API", err.message);
-        res.status(500).json({ message: "Internal server error" });
-    }
-});
-
-app.post("/api/request-meal", async (req, res) => {
-    const { title, mealId, email, name, likes, reviewsCount } = req.body;
-
-    if (!title || !email || !name) {
-        return res
-            .status(400)
-            .json({ message: "Missing title, email, or name" });
-    }
-
-    const newRequest = {
-        title,
-        mealId,
-        email,
-        name,
-        likes,
-        reviewsCount,
-        status: "pending",
-    };
-
-    try {
-        const result = await requestedMealsCollection.insertOne(newRequest);
-
-        await mealsCollection.updateOne(
-            { title },
-            {
-                $addToSet: { isRequestedBy: email },
-            }
-        );
-
-        res.status(201).json({
-            message: "Meal request submitted",
-            insertedId: result.insertedId,
-        });
-    } catch (err) {
-        console.error("Error requesting meal:", err.message);
-        res.status(500).json({ message: "Internal server error" });
-    }
-});
-
-app.get("/api/requested-meals", async (req, res) => {
-    const { email, search } = req.query;
-
-    try {
-        let query = {};
-
-        if (email) {
-            query.email = email;
-        }
-
-        if (search) {
-            const regex = new RegExp(search, "i");
-            query = {
-                $or: [{ email: regex }, { name: regex }],
-            };
-        }
-
-        const meals = await requestedMealsCollection.find(query).toArray();
-        res.send(meals);
-    } catch (err) {
-        console.error("Error fetching requested meals:", err.message);
-        res.status(500).json({ message: "Internal server error" });
-    }
-});
-
-app.patch("/api/requested-meals/:id/serve", async (req, res) => {
-    const { id } = req.params;
-
-    if (!ObjectId.isValid(id)) {
-        return res.status(400).json({ message: "Invalid meal request ID" });
-    }
-
-    try {
-        const result = await requestedMealsCollection.updateOne(
-            { _id: new ObjectId(id) },
-            { $set: { status: "served" } }
-        );
-
-        if (result.modifiedCount === 0) {
-            return res
-                .status(404)
-                .json({ message: "Meal request not found or already served" });
-        }
-
-        res.status(200).json({ message: "Meal marked as served" });
-    } catch (error) {
-        console.error("Error updating meal status:", error);
-        res.status(500).json({ message: "Internal server error" });
-    }
-});
-
-app.patch("/api/requested-meals/:id/cancel", async (req, res) => {
-    try {
-        const requestedMealId = req.params.id;
-        const requestedMeal = await requestedMealsCollection.findOne({
-            _id: new ObjectId(requestedMealId),
-        });
-
-        if (!requestedMeal) {
-            return res
-                .status(404)
-                .json({ message: "Requested meal not found" });
-        }
-
-        const { mealId, email } = requestedMeal;
-
-        const result = await requestedMealsCollection.updateOne(
-            { _id: new ObjectId(requestedMealId) },
-            { $set: { status: "cancelled" } }
-        );
-
-        if (result.modifiedCount === 0) {
-            return res
-                .status(404)
-                .json({ message: "Meal not found or already cancelled" });
-        }
-        await mealsCollection.updateOne(
-            { _id: new ObjectId(mealId) },
-            { $pull: { isRequestedBy: email } }
-        );
-
-        res.json({ message: "Meal cancelled successfully" });
-    } catch (err) {
-        console.error("Cancel meal error:", err);
-        res.status(500).json({ message: "Server error" });
     }
 });
 
@@ -459,6 +280,288 @@ app.patch("/api/meals/:id", async (req, res) => {
         res.status(500).json({ error: "Failed to update meal" });
     }
 });
+
+// Upcoming Meals Routes
+
+app.get("/api/upcoming-meals", async (req, res) => {
+    const result = await upcomingMealsCollection.find({}).toArray();
+    res.send(result);
+});
+
+app.post("/api/upcoming-meals", async (req, res) => {
+    const meal = req.body;
+
+    if (
+        !meal.title ||
+        !meal.category ||
+        !meal.ingredients ||
+        !meal.description ||
+        !meal.price ||
+        !meal.postTime ||
+        !meal.image ||
+        !meal.distributorName ||
+        !meal.distributorEmail ||
+        !meal.addedBy
+    ) {
+        return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const preparedMeal = {
+        ...meal,
+        category: meal.category.toLowerCase(),
+        ingredients: meal.ingredients.map((ing) =>
+            ing.charAt(0).toUpperCase() + ing.slice(1).toLowerCase()
+        ),
+        likes: 0,
+        reviewsCount: 0,
+        rating: 0,
+        isLikedBy: [],
+        isRequestedBy: [],
+    };
+
+    try {
+        const result = await upcomingMealsCollection.insertOne(preparedMeal);
+        res.status(201).json({
+            message: "Upcoming meal added",
+            insertedId: result.insertedId,
+        });
+    } catch (err) {
+        console.error("Error adding upcoming meal:", err);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.delete("/api/upcoming-meals/:id", async (req, res) => {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ message: "Invalid ID" });
+    }
+
+    try {
+        const result = await upcomingMealsCollection.deleteOne({
+            _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ message: "Meal not found" });
+        }
+
+        res.json({ message: "Upcoming meal deleted" });
+    } catch (err) {
+        console.error("Error deleting upcoming meal:", err);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.post("/api/publish-meal", async (req, res) => {
+    const { mealId } = req.body;
+
+    if (!mealId || !ObjectId.isValid(mealId)) {
+        return res.status(400).json({ message: "Invalid or missing mealId" });
+    }
+
+    try {
+        const meal = await upcomingMealsCollection.findOne({
+            _id: new ObjectId(mealId),
+        });
+
+        if (!meal) {
+            return res.status(404).json({ message: "Upcoming meal not found" });
+        }
+
+        // Insert into meals collection
+        const result = await mealsCollection.insertOne({ ...meal });
+        // Delete from upcoming
+        await upcomingMealsCollection.deleteOne({ _id: new ObjectId(mealId) });
+
+        res.status(201).json({
+            message: "Meal published successfully",
+            insertedId: result.insertedId,
+        });
+    } catch (err) {
+        console.error("Error publishing meal:", err);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.post("/api/upcoming-like/:mealId", async (req, res) => {
+    const { mealId } = req.params;
+    const { email } = req.body;
+
+    if (!email || !mealId) {
+        return res.status(400).json({ message: "Missing email or mealId" });
+    }
+
+    try {
+        const meal = await upcomingMealsCollection.findOne({
+            _id: new ObjectId(mealId),
+        });
+        if (!meal) {
+            return res.status(404).json({ message: "Meal not found" });
+        }
+        const isLikedBy = meal.isLikedBy || [];
+        const alreadyLiked = meal.isLikedBy?.includes(email);
+        let updatedDoc;
+
+        if (alreadyLiked) {
+            updatedDoc = {
+                $pull: { isLikedBy: email },
+                $inc: { likes: -1 },
+            };
+        } else {
+            updatedDoc = {
+                $addToSet: { isLikedBy: email },
+                $inc: { likes: 1 },
+            };
+        }
+
+        const result = await upcomingMealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            updatedDoc
+        );
+
+        res.json({
+            message: alreadyLiked
+                ? "Unliked successfully"
+                : "Liked successfully",
+        });
+    } catch (err) {
+        console.error("Error in liking API", err.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+
+// Requested Meals Routes
+app.post("/api/request-meal", async (req, res) => {
+    const { title, mealId, email, name, likes, reviewsCount } = req.body;
+
+    if (!title || !email || !name) {
+        return res
+            .status(400)
+            .json({ message: "Missing title, email, or name" });
+    }
+
+    const newRequest = {
+        title,
+        mealId,
+        email,
+        name,
+        likes,
+        reviewsCount,
+        status: "pending",
+    };
+
+    try {
+        const result = await requestedMealsCollection.insertOne(newRequest);
+
+        await mealsCollection.updateOne(
+            { title },
+            {
+                $addToSet: { isRequestedBy: email },
+            }
+        );
+
+        res.status(201).json({
+            message: "Meal request submitted",
+            insertedId: result.insertedId,
+        });
+    } catch (err) {
+        console.error("Error requesting meal:", err.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.get("/api/requested-meals", async (req, res) => {
+    const { email, search } = req.query;
+
+    try {
+        let query = {};
+
+        if (email) {
+            query.email = email;
+        }
+
+        if (search) {
+            const regex = new RegExp(search, "i");
+            query = {
+                $or: [{ email: regex }, { name: regex }],
+            };
+        }
+
+        const meals = await requestedMealsCollection.find(query).toArray();
+        res.send(meals);
+    } catch (err) {
+        console.error("Error fetching requested meals:", err.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.patch("/api/requested-meals/:id/serve", async (req, res) => {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ message: "Invalid meal request ID" });
+    }
+
+    try {
+        const result = await requestedMealsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status: "served" } }
+        );
+
+        if (result.modifiedCount === 0) {
+            return res
+                .status(404)
+                .json({ message: "Meal request not found or already served" });
+        }
+
+        res.status(200).json({ message: "Meal marked as served" });
+    } catch (error) {
+        console.error("Error updating meal status:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+app.patch("/api/requested-meals/:id/cancel", async (req, res) => {
+    try {
+        const requestedMealId = req.params.id;
+        const requestedMeal = await requestedMealsCollection.findOne({
+            _id: new ObjectId(requestedMealId),
+        });
+
+        if (!requestedMeal) {
+            return res
+                .status(404)
+                .json({ message: "Requested meal not found" });
+        }
+
+        const { mealId, email } = requestedMeal;
+
+        const result = await requestedMealsCollection.updateOne(
+            { _id: new ObjectId(requestedMealId) },
+            { $set: { status: "cancelled" } }
+        );
+
+        if (result.modifiedCount === 0) {
+            return res
+                .status(404)
+                .json({ message: "Meal not found or already cancelled" });
+        }
+        await mealsCollection.updateOne(
+            { _id: new ObjectId(mealId) },
+            { $pull: { isRequestedBy: email } }
+        );
+
+        res.json({ message: "Meal cancelled successfully" });
+    } catch (err) {
+        console.error("Cancel meal error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+
 
 // Reviews Routes
 app.post("/api/add-review", async (req, res) => {
@@ -946,6 +1049,46 @@ app.patch("/api/update-user-package", async (req, res) => {
         res.status(500).json({ message: "Failed to update package" });
     }
 });
+
+// Dashboard Statistics
+
+app.get("/api/dashboard-stats", async (req, res) => {
+    try {
+        const [userCount, servedCount, reviewCount, totalRevenueResult] =
+            await Promise.all([
+                usersCollection.countDocuments(),
+                requestedMealsCollection.countDocuments({ status: "served" }),
+                reviewsCollection.countDocuments(),
+                paymentsCollection
+                    .aggregate([
+                        { $match: { status: "Success" } },
+                        {
+                            $group: {
+                                _id: null,
+                                total: { $sum: "$amount" },
+                            },
+                        },
+                    ])
+                    .toArray(),
+            ]);
+
+        const totalRevenue =
+            totalRevenueResult.length > 0
+                ? totalRevenueResult[0].total
+                : 0;
+
+        res.json({
+            users: userCount,
+            mealsServed: servedCount,
+            reviews: reviewCount,
+            revenue: totalRevenue,
+        });
+    } catch (error) {
+        console.error("Dashboard stats error:", error);
+        res.status(500).json({ message: "Failed to fetch dashboard stats" });
+    }
+});
+
 
 // Server Listen
 app.listen(port, () => {
