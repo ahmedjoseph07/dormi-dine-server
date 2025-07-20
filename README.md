@@ -20,8 +20,8 @@ The backend server for **DormiDine**, a hostel meal management system. This serv
 
 ## 🔗 Live Site
 
-- Frontend Live Site (Firebase) : [https://dormidine.web.app](https://dormidine.web.app)  
-- Backend Live Site (Vercel) : [https://dormidine.web.app](https://dormidine.web.app)
+- Frontend Live Site (Firebase) : [https://dormi-dine.web.app](https://dormi-dine.web.app)  
+- Backend Live Site (Vercel) : [https://dormi-dine-server.vercel.app/](https://dormi-dine-server.vercel.app/)
 
 
 ## 📦 Database Collections (MongoDB)
@@ -636,14 +636,13 @@ All routes require Firebase authentication (`verifyFirebaseToken` middleware).
 **Endpoint:** `GET /api/dashboard-stats`  
 **Protected:** Yes
 
-**Response:**
-
+**Response:** 
 ```json
 {
-  "users": <number>,           // Total registered users
-  "mealsServed": <number>,     // Total meals served with status "served"
-  "reviews": <number>,         // Total reviews count
-  "revenue": <number>          // Total revenue from successful payments
+  "users": 120,
+  "mealsServed": 250,
+  "reviews": 80,
+  "revenue": 9999,
 }
 ```
 
@@ -664,3 +663,10 @@ All routes require Firebase authentication (`verifyFirebaseToken` middleware).
 - The package names are case-insensitive but stored in lowercase.
 
 ---
+
+## 📬 Contact
+For any queries or support, reach out via:
+
+📧 Email: `ahmedjoseph11@gmail.com`
+
+Made with ❤️ by `JOSEPH AHMED` for comfort and efficient meal management in hostel.

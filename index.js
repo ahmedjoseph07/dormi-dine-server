@@ -28,7 +28,7 @@ admin.initializeApp({
 // Built-in middlewares
 app.use(
     cors({
-        origin: "http://localhost:5173",
+        origin: ["http://localhost:5173","https://dormi-dine.web.app"],
         credentials: true,
     })
 );
