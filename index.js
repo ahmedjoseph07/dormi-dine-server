@@ -355,7 +355,7 @@ app.delete("/api/upcoming-meals/:id", async (req, res) => {
 });
 
 app.post("/api/publish-meal", async (req, res) => {
-    const { mealId } = req.body;
+    const { mealId, distributorEmail: email } = req.body;
 
     if (!mealId || !ObjectId.isValid(mealId)) {
         return res.status(400).json({ message: "Invalid or missing mealId" });
@@ -374,6 +374,10 @@ app.post("/api/publish-meal", async (req, res) => {
         const result = await mealsCollection.insertOne({ ...meal });
         // Delete from upcoming
         await upcomingMealsCollection.deleteOne({ _id: new ObjectId(mealId) });
+        await usersCollection.updateOne(
+            { email , role: "admin" },
+            { $inc: { mealsAdded: 1 } }
+        );
 
         res.status(201).json({
             message: "Meal published successfully",
