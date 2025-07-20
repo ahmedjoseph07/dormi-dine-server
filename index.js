@@ -4,11 +4,26 @@ import express from "express";
 import cors from "cors";
 import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
 import Stripe from "stripe";
+import admin from "firebase-admin";
+
+// import { createRequire } from "node:module";
+// const require = createRequire(import.meta.url);
+// const serviceAccount = require("./serviceKey.json");
+
+const serviceAccount = JSON.parse(
+    Buffer.from(process.env.FIREBASE_KEY, "base64").toString(
+        "utf-8"
+    )
+);
 
 const app = express();
 const port = 3000;
 const uri = process.env.MONGO_URI;
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+});
 
 // Built-in middlewares
 app.use(
@@ -35,6 +50,27 @@ const usersCollection = db.collection("users");
 const reviewsCollection = db.collection("reviews");
 const paymentsCollection = db.collection("payments");
 const requestedMealsCollection = db.collection("requested-meals");
+
+// middlewares
+const verifyFirebaseToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res
+            .status(401)
+            .json({ message: "Unauthorized: No token provided" });
+    }
+    const idToken = authHeader.split(" ")[1];
+    try {
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        req.user = decodedToken;
+        next();
+    } catch (error) {
+        console.error("Firebase token verification failed:", error);
+        return res
+            .status(401)
+            .json({ message: "Unauthorized: Invalid or expired token" });
+    }
+};
 
 app.get("/", (req, res) => {
     res.send("Welcome to DormiDome Server");
@@ -145,7 +181,7 @@ app.post("/api/like/:mealId", async (req, res) => {
     }
 });
 
-app.post("/api/meals", async (req, res) => {
+app.post("/api/meals", verifyFirebaseToken, async (req, res) => {
     const {
         title,
         category,
@@ -220,7 +256,7 @@ app.post("/api/meals", async (req, res) => {
     }
 });
 
-app.delete("/api/meals/:id", async (req, res) => {
+app.delete("/api/meals/:id", verifyFirebaseToken, async (req, res) => {
     try {
         const id = req.params.id;
         const result = await mealsCollection.deleteOne({
@@ -237,7 +273,7 @@ app.delete("/api/meals/:id", async (req, res) => {
     }
 });
 
-app.patch("/api/meals/:id", async (req, res) => {
+app.patch("/api/meals/:id", verifyFirebaseToken, async (req, res) => {
     try {
         const id = req.params.id;
         const {
@@ -288,7 +324,7 @@ app.get("/api/upcoming-meals", async (req, res) => {
     res.send(result);
 });
 
-app.post("/api/upcoming-meals", async (req, res) => {
+app.post("/api/upcoming-meals", verifyFirebaseToken, async (req, res) => {
     const meal = req.body;
 
     if (
@@ -331,7 +367,7 @@ app.post("/api/upcoming-meals", async (req, res) => {
     }
 });
 
-app.delete("/api/upcoming-meals/:id", async (req, res) => {
+app.delete("/api/upcoming-meals/:id", verifyFirebaseToken, async (req, res) => {
     const { id } = req.params;
 
     if (!ObjectId.isValid(id)) {
@@ -354,7 +390,7 @@ app.delete("/api/upcoming-meals/:id", async (req, res) => {
     }
 });
 
-app.post("/api/publish-meal", async (req, res) => {
+app.post("/api/publish-meal", verifyFirebaseToken, async (req, res) => {
     const { mealId, distributorEmail: email } = req.body;
 
     if (!mealId || !ObjectId.isValid(mealId)) {
@@ -375,7 +411,7 @@ app.post("/api/publish-meal", async (req, res) => {
         // Delete from upcoming
         await upcomingMealsCollection.deleteOne({ _id: new ObjectId(mealId) });
         await usersCollection.updateOne(
-            { email , role: "admin" },
+            { email, role: "admin" },
             { $inc: { mealsAdded: 1 } }
         );
 
@@ -437,7 +473,7 @@ app.post("/api/upcoming-like/:mealId", async (req, res) => {
 });
 
 // Requested Meals Routes
-app.post("/api/request-meal", async (req, res) => {
+app.post("/api/request-meal", verifyFirebaseToken, async (req, res) => {
     const { title, mealId, email, name, likes, reviewsCount } = req.body;
 
     if (!title || !email || !name) {
@@ -476,7 +512,7 @@ app.post("/api/request-meal", async (req, res) => {
     }
 });
 
-app.get("/api/requested-meals", async (req, res) => {
+app.get("/api/requested-meals", verifyFirebaseToken, async (req, res) => {
     const { email, search } = req.query;
 
     try {
@@ -501,48 +537,10 @@ app.get("/api/requested-meals", async (req, res) => {
     }
 });
 
-app.patch("/api/requested-meals/:id/serve", async (req, res) => {
-    const requestedMealId = req.params.id;
-    const requestedMeal = await requestedMealsCollection.findOne({
-        _id: new ObjectId(requestedMealId),
-    });
-
-    if (!requestedMeal) {
-        return res.status(404).json({ message: "Requested meal not found" });
-    }
-
-    const { mealId, email } = requestedMeal;
-
-    if (!ObjectId.isValid(requestedMealId)) {
-        return res.status(400).json({ message: "Invalid meal request ID" });
-    }
-
-    try {
-        const result = await requestedMealsCollection.updateOne(
-            { _id: new ObjectId(requestedMealId) },
-            { $set: { status: "served" } }
-        );
-
-        if (result.modifiedCount === 0) {
-            return res
-                .status(404)
-                .json({ message: "Meal request not found or already served" });
-        }
-
-        await mealsCollection.updateOne(
-            { _id: new ObjectId(mealId) },
-            { $pull: { isRequestedBy: email } }
-        );
-
-        res.status(200).json({ message: "Meal marked as served" });
-    } catch (error) {
-        console.error("Error updating meal status:", error);
-        res.status(500).json({ message: "Internal server error" });
-    }
-});
-
-app.patch("/api/requested-meals/:id/cancel", async (req, res) => {
-    try {
+app.patch(
+    "/api/requested-meals/:id/serve",
+    verifyFirebaseToken,
+    async (req, res) => {
         const requestedMealId = req.params.id;
         const requestedMeal = await requestedMealsCollection.findOne({
             _id: new ObjectId(requestedMealId),
@@ -556,30 +554,80 @@ app.patch("/api/requested-meals/:id/cancel", async (req, res) => {
 
         const { mealId, email } = requestedMeal;
 
-        const result = await requestedMealsCollection.updateOne(
-            { _id: new ObjectId(requestedMealId) },
-            { $set: { status: "cancelled" } }
-        );
-
-        if (result.modifiedCount === 0) {
-            return res
-                .status(404)
-                .json({ message: "Meal not found or already cancelled" });
+        if (!ObjectId.isValid(requestedMealId)) {
+            return res.status(400).json({ message: "Invalid meal request ID" });
         }
-        await mealsCollection.updateOne(
-            { _id: new ObjectId(mealId) },
-            { $pull: { isRequestedBy: email } }
-        );
 
-        res.json({ message: "Meal cancelled successfully" });
-    } catch (err) {
-        console.error("Cancel meal error:", err);
-        res.status(500).json({ message: "Server error" });
+        try {
+            const result = await requestedMealsCollection.updateOne(
+                { _id: new ObjectId(requestedMealId) },
+                { $set: { status: "served" } }
+            );
+
+            if (result.modifiedCount === 0) {
+                return res
+                    .status(404)
+                    .json({
+                        message: "Meal request not found or already served",
+                    });
+            }
+
+            await mealsCollection.updateOne(
+                { _id: new ObjectId(mealId) },
+                { $pull: { isRequestedBy: email } }
+            );
+
+            res.status(200).json({ message: "Meal marked as served" });
+        } catch (error) {
+            console.error("Error updating meal status:", error);
+            res.status(500).json({ message: "Internal server error" });
+        }
     }
-});
+);
+
+app.patch(
+    "/api/requested-meals/:id/cancel",
+    verifyFirebaseToken,
+    async (req, res) => {
+        try {
+            const requestedMealId = req.params.id;
+            const requestedMeal = await requestedMealsCollection.findOne({
+                _id: new ObjectId(requestedMealId),
+            });
+
+            if (!requestedMeal) {
+                return res
+                    .status(404)
+                    .json({ message: "Requested meal not found" });
+            }
+
+            const { mealId, email } = requestedMeal;
+
+            const result = await requestedMealsCollection.updateOne(
+                { _id: new ObjectId(requestedMealId) },
+                { $set: { status: "cancelled" } }
+            );
+
+            if (result.modifiedCount === 0) {
+                return res
+                    .status(404)
+                    .json({ message: "Meal not found or already cancelled" });
+            }
+            await mealsCollection.updateOne(
+                { _id: new ObjectId(mealId) },
+                { $pull: { isRequestedBy: email } }
+            );
+
+            res.json({ message: "Meal cancelled successfully" });
+        } catch (err) {
+            console.error("Cancel meal error:", err);
+            res.status(500).json({ message: "Server error" });
+        }
+    }
+);
 
 // Reviews Routes
-app.post("/api/add-review", async (req, res) => {
+app.post("/api/add-review", verifyFirebaseToken, async (req, res) => {
     const { mealId, name, email, comment, rating } = req.body;
     if (!mealId || !comment || !name || !email) {
         return res.status(400).json({ message: "Missing review fields" });
@@ -641,7 +689,7 @@ app.get("/api/reviews/:mealId", async (req, res) => {
     }
 });
 
-app.get("/api/user-reviews", async (req, res) => {
+app.get("/api/user-reviews", verifyFirebaseToken, async (req, res) => {
     const { email } = req.query;
     if (!email) {
         return res.status(400).json({ message: "Email is required" });
@@ -674,7 +722,7 @@ app.get("/api/user-reviews", async (req, res) => {
     }
 });
 
-app.patch("/api/reviews/:id", async (req, res) => {
+app.patch("/api/reviews/:id", verifyFirebaseToken, async (req, res) => {
     const { id } = req.params;
     const { comment, rating } = req.body;
 
@@ -725,7 +773,7 @@ app.patch("/api/reviews/:id", async (req, res) => {
     }
 });
 
-app.delete("/api/reviews/:id", async (req, res) => {
+app.delete("/api/reviews/:id", verifyFirebaseToken, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -773,7 +821,7 @@ app.delete("/api/reviews/:id", async (req, res) => {
     }
 });
 
-app.get("/api/all-reviews", async (req, res) => {
+app.get("/api/all-reviews", verifyFirebaseToken, async (req, res) => {
     try {
         const reviews = await reviewsCollection
             .aggregate([
@@ -819,7 +867,7 @@ app.get("/api/all-reviews", async (req, res) => {
 });
 
 // Users Routes
-app.post("/api/save-user", async (req, res) => {
+app.post("/api/save-user", verifyFirebaseToken, async (req, res) => {
     const { email, name } = req.body;
     if (!email || !name) {
         return res.status(400).json({ message: "Email and name are required" });
@@ -849,7 +897,7 @@ app.post("/api/save-user", async (req, res) => {
     }
 });
 
-app.get("/api/user", async (req, res) => {
+app.get("/api/user", verifyFirebaseToken, async (req, res) => {
     const { email } = req.query;
     if (!email) {
         return res.send({ message: "User email is required" });
@@ -866,7 +914,7 @@ app.get("/api/user", async (req, res) => {
     }
 });
 
-app.get("/api/admin/users", async (req, res) => {
+app.get("/api/admin/users", verifyFirebaseToken, async (req, res) => {
     const { search } = req.query;
     const baseQuery = { role: "user" };
 
@@ -886,7 +934,7 @@ app.get("/api/admin/users", async (req, res) => {
     }
 });
 
-app.get("/api/users/role", async (req, res) => {
+app.get("/api/users/role", verifyFirebaseToken, async (req, res) => {
     const { email } = req.query;
 
     if (!email) {
@@ -907,67 +955,75 @@ app.get("/api/users/role", async (req, res) => {
     }
 });
 
-app.put("/api/admin/users/:email/make-admin", async (req, res) => {
-    const { email } = req.params;
-    if (!email) {
-        return res.status(400).json({ message: "User email is required" });
-    }
-
-    try {
-        const updateResult = await usersCollection.updateOne(
-            { email },
-            {
-                $set: {
-                    role: "admin",
-                    mealsAdded: 0,
-                },
-            }
-        );
-
-        if (updateResult.modifiedCount === 0) {
-            return res
-                .status(404)
-                .json({ message: "User not found or already an admin" });
+app.put(
+    "/api/admin/users/:email/make-admin",
+    verifyFirebaseToken,
+    async (req, res) => {
+        const { email } = req.params;
+        if (!email) {
+            return res.status(400).json({ message: "User email is required" });
         }
 
-        res.json({ message: "User promoted to admin successfully" });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Internal server error" });
+        try {
+            const updateResult = await usersCollection.updateOne(
+                { email },
+                {
+                    $set: {
+                        role: "admin",
+                        mealsAdded: 0,
+                    },
+                }
+            );
+
+            if (updateResult.modifiedCount === 0) {
+                return res
+                    .status(404)
+                    .json({ message: "User not found or already an admin" });
+            }
+
+            res.json({ message: "User promoted to admin successfully" });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ message: "Internal server error" });
+        }
     }
-});
+);
 
 // Payments Routes
-app.post("/api/create-payment-intent", async (req, res) => {
-    const { packageName } = req.body;
+app.post(
+    "/api/create-payment-intent",
+    verifyFirebaseToken,
+    async (req, res) => {
+        const { packageName } = req.body;
 
-    const priceMap = {
-        silver: 999,
-        gold: 1999,
-        platinum: 2999,
-    };
+        const priceMap = {
+            silver: 999,
+            gold: 1999,
+            platinum: 2999,
+        };
 
-    const amount = priceMap[packageName.toLowerCase()];
+        const amount = priceMap[packageName.toLowerCase()];
 
-    if (!amount) {
-        return res.status(400).json({ message: "Invalid package name" });
+        if (!amount) {
+            return res.status(400).json({ message: "Invalid package name" });
+        }
+
+        try {
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount,
+                currency: "usd",
+                automatic_payment_methods: { enabled: true },
+            });
+
+            res.send({ clientSecret: paymentIntent.client_secret });
+        } catch (err) {
+            console.error(err.message);
+            res.status(500).json({ message: "Payment intent failed" });
+        }
     }
+);
 
-    try {
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount,
-            currency: "usd",
-            automatic_payment_methods: { enabled: true },
-        });
-
-        res.send({ clientSecret: paymentIntent.client_secret });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).json({ message: "Payment intent failed" });
-    }
-});
-
-app.post("/api/save-payment", async (req, res) => {
+app.post("/api/save-payment", verifyFirebaseToken, async (req, res) => {
     const { email, amount, method, status, transactionId, packageName } =
         req.body;
 
@@ -997,7 +1053,7 @@ app.post("/api/save-payment", async (req, res) => {
     }
 });
 
-app.get("/api/payment-history", async (req, res) => {
+app.get("/api/payment-history", verifyFirebaseToken, async (req, res) => {
     const { email } = req.query;
     if (!email) {
         return res.status(400).json({ message: "Email required" });
@@ -1015,7 +1071,7 @@ app.get("/api/payment-history", async (req, res) => {
     }
 });
 
-app.get("/api/already-paid", async (req, res) => {
+app.get("/api/already-paid", verifyFirebaseToken, async (req, res) => {
     const { email, packageName } = req.query;
     if (!email || !packageName) {
         return res.status(400).json({ message: "Missing query params" });
@@ -1039,7 +1095,7 @@ app.get("/api/already-paid", async (req, res) => {
     }
 });
 
-app.patch("/api/update-user-package", async (req, res) => {
+app.patch("/api/update-user-package", verifyFirebaseToken, async (req, res) => {
     const { email, packageName } = req.body;
 
     if (!email || !packageName) {
@@ -1067,7 +1123,7 @@ app.patch("/api/update-user-package", async (req, res) => {
 
 // Dashboard Statistics
 
-app.get("/api/dashboard-stats", async (req, res) => {
+app.get("/api/dashboard-stats", verifyFirebaseToken, async (req, res) => {
     try {
         const [userCount, servedCount, reviewCount, totalRevenueResult] =
             await Promise.all([
