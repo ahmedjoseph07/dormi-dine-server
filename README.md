@@ -84,7 +84,7 @@ Follow these steps to run the DormiDine backend server locally.
 ### 1. Clone the repository:
 
 ```
-git clone https://github.com/yourusername/dormi-dine-server.git
+git clone https://github.com/ahmedjoseph07/dormi-dine-server.git
 cd dormi-dine-server
 ``` 
 
