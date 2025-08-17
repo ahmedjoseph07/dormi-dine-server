@@ -5,21 +5,21 @@ import cors from "cors";
 import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
 import Stripe from "stripe";
 import admin from "firebase-admin";
+import { Resend } from "resend";
 
 // import { createRequire } from "node:module";
 // const require = createRequire(import.meta.url);
 // const serviceAccount = require("./serviceKey.json");
 
 const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_KEY, "base64").toString(
-        "utf-8"
-    )
+    Buffer.from(process.env.FIREBASE_KEY, "base64").toString("utf-8")
 );
 
 const app = express();
 const port = 3000;
 const uri = process.env.MONGO_URI;
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -28,7 +28,7 @@ admin.initializeApp({
 // Built-in middlewares
 app.use(
     cors({
-        origin: ["http://localhost:5173","https://dormi-dine.web.app"],
+        origin: ["http://localhost:5173", "https://dormi-dine.web.app"],
         credentials: true,
     })
 );
@@ -565,11 +565,9 @@ app.patch(
             );
 
             if (result.modifiedCount === 0) {
-                return res
-                    .status(404)
-                    .json({
-                        message: "Meal request not found or already served",
-                    });
+                return res.status(404).json({
+                    message: "Meal request not found or already served",
+                });
             }
 
             await mealsCollection.updateOne(
@@ -1155,6 +1153,26 @@ app.get("/api/dashboard-stats", verifyFirebaseToken, async (req, res) => {
     } catch (error) {
         console.error("Dashboard stats error:", error);
         res.status(500).json({ message: "Failed to fetch dashboard stats" });
+    }
+});
+
+// Newsletter
+app.post("/api/subscribe", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    try {
+        await resend.emails.send({
+            from: "DormiDine <onboarding@resend.dev>",
+            to: email,
+            subject: "Welcome to DormiDine Newsletter",
+            html: `<h2>Thanks for subscribing!</h2><p>You’ll now receive updates on meals and campus news.</p>`,
+        });
+
+        res.status(200).json({ message: "Subscribed successfully" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to send email" });
     }
 });
 
